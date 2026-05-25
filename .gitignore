@@ -1,0 +1,27 @@
+# FaceVault — .gitignore
+
+# Database (contains personal face data)
+facevault_db.json
+
+# Sorted output folders
+sorted_by_person/
+Things Images/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
