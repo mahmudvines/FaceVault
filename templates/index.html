@@ -634,6 +634,47 @@ aside {
       </div>
     </div>
 
+    <!-- External Devices section -->
+    <div class="sidebar-section">
+      <h2>💾 External Devices</h2>
+      
+      <!-- Manual Path Entry -->
+      <div style="margin-bottom:12px;">
+        <label style="font-size:0.7rem;color:var(--muted);display:block;margin-bottom:4px;">📂 External Device Path</label>
+        <input type="text" id="externalDevicePath" placeholder="D:\ or /Volumes/Drive or /mnt/usb" style="
+          width:100%;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--r);
+          color: var(--text);
+          font-family: var(--font-mono);
+          font-size: 0.75rem;
+          padding: 8px;
+          outline: none;
+          margin-bottom: 8px;
+          box-sizing: border-box;
+        " />
+        <div class="btn-row" style="margin-bottom:12px;">
+          <button class="btn btn-primary" id="btnScanExternalPath" style="font-size:0.75rem;padding:8px;">
+            🔍 Scan External
+          </button>
+          <button class="btn btn-gold" id="btnSortExternalPath" style="font-size:0.75rem;padding:8px;">
+            💾 Sort to Path
+          </button>
+        </div>
+      </div>
+
+      <!-- Auto-Detect Button -->
+      <button class="btn btn-primary" id="btnShowDevices" style="width:100%;margin-bottom:8px;font-size:0.75rem;padding:8px;">
+        🔍 Auto-Detect Devices
+      </button>
+      <div id="devicesList" style="font-size:0.75rem;color:var(--muted);padding:8px;display:none;">
+        <div style="text-align:center;padding:12px;">
+          <span class="spinner"></span> Scanning...
+        </div>
+      </div>
+    </div>
+
     <!-- Actions -->
     <div class="sidebar-section" style="padding-bottom:1rem;">
       <h2>⚙️ Actions</h2>
@@ -692,6 +733,72 @@ aside {
 <div class="lightbox" id="lightbox">
   <button class="lightbox-close" id="lightboxClose">✕</button>
   <img id="lightboxImg" src="" alt="">
+</div>
+
+<!-- Device Modal -->
+<div id="deviceModal" style="
+  position: fixed; inset: 0;
+  background: rgba(5,7,12,0.95);
+  backdrop-filter: blur(10px);
+  z-index: 600;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+">
+  <div style="
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 2rem;
+    max-width: 500px;
+    width: 100%;
+    max-height: 80vh;
+    overflow-y: auto;
+    position: relative;
+  ">
+    <button id="deviceModalClose" style="
+      position: absolute;
+      top: 1rem; right: 1rem;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font-size: 1.5rem;
+      cursor: pointer;
+    ">✕</button>
+    
+    <h2 style="font-family:var(--font-head);font-size:1.25rem;margin-bottom:1rem;">
+      💾 External Devices
+    </h2>
+    
+    <div id="devicesContainer" style="display:none;">
+      <div id="devicesGrid" style="
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+        margin-bottom: 1rem;
+      "></div>
+      
+      <h3 style="font-family:var(--font-head);font-size:0.9rem;margin-top:1.5rem;margin-bottom:0.75rem;">
+        Device Actions
+      </h3>
+      
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <button class="btn btn-primary" id="btnScanExternalBtn" style="font-size:0.75rem;padding:10px;">
+          🔍 Scan Selected
+        </button>
+        <button class="btn btn-gold" id="btnSortExternalBtn" style="font-size:0.75rem;padding:10px;">
+          💾 Sort to Device
+        </button>
+      </div>
+    </div>
+    
+    <div id="devicesLoading" style="text-align:center;padding:2rem;">
+      <span class="spinner"></span>
+      <p style="margin-top:10px;font-size:0.85rem;">Scanning for devices...</p>
+    </div>
+  </div>
 </div>
 
 <!-- Toast -->
@@ -839,13 +946,27 @@ document.getElementById('btnScan').onclick = async () => {
     pb.style.width = pct + '%';
   }, 400);
 
+  // Timeout after 5 minutes
+  const timeoutId = setTimeout(() => {
+    clearInterval(timer);
+    controller.abort();
+    toast('Scan timeout - took too long', 'error');
+    pw.classList.remove('visible');
+    btn.disabled = false;
+    btn.innerHTML = '<span>Scan</span>';
+  }, 5 * 60 * 1000);
+
+  const controller = new AbortController();
+
   try {
     const response = await fetch('/api/scan', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({folder})
+      body: JSON.stringify({folder}),
+      signal: controller.signal
     });
 
+    clearTimeout(timeoutId);
     const text = await response.text();
     let r;
     try {
@@ -869,11 +990,20 @@ document.getElementById('btnScan').onclick = async () => {
     }
   } catch(e) {
     clearInterval(timer);
-    toast('Scan failed. ' + (e.message || 'Is the server running?'), 'error');
+    if (e.name === 'AbortError') {
+      toast('Scan timeout - server took too long to respond', 'error');
+    } else {
+      toast('Scan failed. ' + (e.message || 'Is the server running?'), 'error');
+    }
   } finally {
-    setTimeout(() => pw.classList.remove('visible'), 4000);
-    btn.disabled = false;
-    btn.innerHTML = '<span>Scan</span>';
+    clearTimeout(timeoutId);
+    clearInterval(timer);
+    // Force button reset
+    setTimeout(() => {
+      pw.classList.remove('visible');
+      btn.disabled = false;
+      btn.innerHTML = '<span>Scan</span>';
+    }, 100);
   }
 };
 
@@ -945,6 +1075,280 @@ function toast(msg, type='success') {
   el.className = 'show ' + type;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.className = '', 3500);
+}
+
+// ── External Devices ───────────────────────────────────────────────────
+let selectedDevicePath = null;
+
+// ── Manual Path Entry Handlers ─────────────────────────────────────────
+document.getElementById('btnScanExternalPath').onclick = async () => {
+  const path = document.getElementById('externalDevicePath').value.trim();
+  if (!path) {
+    toast('Enter external device path first', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btnScanExternalPath');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Scanning...';
+
+  const pw = document.getElementById('progressWrap');
+  const pb = document.getElementById('progressBar');
+  const pl = document.getElementById('progressLabel');
+
+  pw.classList.add('visible');
+
+  let pct = 0;
+  const timer = setInterval(() => {
+    pct = Math.min(pct + Math.random() * 8, 88);
+    pb.style.width = pct + '%';
+  }, 400);
+
+  // Timeout after 5 minutes
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+    clearInterval(timer);
+    toast('Scan timeout - took too long', 'error');
+    pw.classList.remove('visible');
+    btn.disabled = false;
+    btn.innerHTML = '🔍 Scan External';
+  }, 5 * 60 * 1000);
+
+  const controller = new AbortController();
+
+  try {
+    const response = await fetch('/api/scan-external', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({device_path: path}),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+    const r = await response.json();
+    clearInterval(timer);
+    pb.style.width = '100%';
+
+    if (!response.ok) {
+      toast('Error: ' + (r.error || 'Scan failed'), 'error');
+    } else {
+      pl.textContent = `✓ ${r.scanned} scanned · ${r.added} with faces · ${r.no_face} no-face`;
+      toast(`Found ${r.clusters} people total ✓`, 'success');
+      await loadPeople();
+      await refreshStats();
+    }
+  } catch(e) {
+    clearInterval(timer);
+    if (e.name === 'AbortError') {
+      toast('Scan timeout - server took too long to respond', 'error');
+    } else {
+      toast('Scan failed: ' + (e.message || 'Check path and try again'), 'error');
+    }
+  } finally {
+    clearTimeout(timeoutId);
+    clearInterval(timer);
+    // Force button reset
+    setTimeout(() => {
+      pw.classList.remove('visible');
+      btn.disabled = false;
+      btn.innerHTML = '🔍 Scan External';
+    }, 100);
+  }
+};
+
+document.getElementById('btnSortExternalPath').onclick = async () => {
+  const path = document.getElementById('externalDevicePath').value.trim();
+  if (!path) {
+    toast('Enter external device path first', 'error');
+    return;
+  }
+
+  if (!confirm(`Sort organized photos to ${path}?`)) return;
+
+  const btn = document.getElementById('btnSortExternalPath');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Sorting...';
+
+  try {
+    const response = await fetch('/api/sort-to-external', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({output_dir: path})
+    });
+
+    const r = await response.json();
+    if (!response.ok) {
+      toast('Error: ' + (r.error || 'Sort failed'), 'error');
+    } else {
+      let msg = `✓ ${r.copied} photos sorted`;
+      if (r.error_count > 0) msg += ` (${r.error_count} errors)`;
+      toast(msg, 'success');
+    }
+  } catch(e) {
+    toast('Sort failed: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '💾 Sort to Path';
+  }
+};
+
+// ── Auto-Detect Device Buttons ─────────────────────────────────────────
+document.getElementById('btnShowDevices').onclick = async () => {
+  const modal = document.getElementById('deviceModal');
+  const loading = document.getElementById('devicesLoading');
+  const container = document.getElementById('devicesContainer');
+  
+  modal.style.display = 'flex';
+  loading.style.display = 'block';
+  container.style.display = 'none';
+  
+  try {
+    const r = await fetch('/api/devices/rescan').then(r => r.json());
+    const devices = r.devices || [];
+    
+    const grid = document.getElementById('devicesGrid');
+    if (!devices.length) {
+      grid.innerHTML = '<div style="color:var(--muted);padding:1rem;text-align:center;">No external devices found<br><br><strong style="color:var(--text);">Tip:</strong> Use manual path entry above if device not detected</div>';
+      container.style.display = 'block';
+      loading.style.display = 'none';
+      return;
+    }
+    
+    grid.innerHTML = devices.map(dev => `
+      <div style="
+        padding: 12px;
+        background: var(--surface);
+        border: 2px solid ${!dev.accessible ? 'var(--danger)' : selectedDevicePath === dev.mount_point ? 'var(--accent)' : 'var(--border)'};
+        border-radius: 12px;
+        cursor: ${dev.accessible ? 'pointer' : 'not-allowed'};
+        transition: all 0.2s;
+        opacity: ${dev.accessible ? '1' : '0.5'};
+      "
+      onclick="selectDevice('${dev.mount_point}')"
+      style="user-select:none;"
+      data-device-path="${dev.mount_point}">
+        <div style="font-family:var(--font-head);font-weight:700;margin-bottom:4px;">
+          ${dev.device_type === 'mobile' ? '📱' : dev.device_type === 'sd_card' ? '💿' : dev.device_type === 'external_hdd' ? '🖥' : '💾'}
+          ${dev.label}
+        </div>
+        <div style="font-size:0.7rem;color:var(--muted);margin-bottom:4px;">
+          ${dev.device_type === 'mobile' ? 'Mobile Device' : dev.device_type === 'sd_card' ? 'SD Card' : dev.device_type === 'external_hdd' ? 'External Hard Drive' : 'USB Drive'}
+          ${!dev.accessible ? '· Not accessible' : ''}
+        </div>
+        <div style="font-size:0.65rem;color:var(--muted);">
+          ${formatBytes(dev.free_space)} free / ${formatBytes(dev.total_space)} total
+        </div>
+      </div>
+    `).join('');
+    
+    container.style.display = 'block';
+    loading.style.display = 'none';
+  } catch (e) {
+    toast('Failed to scan devices: ' + e.message, 'error');
+    loading.style.display = 'none';
+  }
+};
+
+function selectDevice(path) {
+  selectedDevicePath = path;
+  const modal = document.getElementById('deviceModal');
+  const items = modal.querySelectorAll('[data-device-path]');
+  items.forEach(item => {
+    const style = item.getAttribute('style');
+    const isSelected = item.getAttribute('data-device-path') === path;
+    item.style.borderColor = isSelected ? 'var(--accent)' : 'var(--border)';
+  });
+  toast(`Selected: ${path}`, 'success');
+}
+
+document.getElementById('deviceModalClose').onclick = () => {
+  document.getElementById('deviceModal').style.display = 'none';
+};
+
+document.getElementById('deviceModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('deviceModal'))
+    document.getElementById('deviceModal').style.display = 'none';
+});
+
+// ── Scan External ──────────────────────────────────────────────────────
+document.getElementById('btnScanExternalBtn').onclick = async () => {
+  if (!selectedDevicePath) {
+    toast('Select a device first', 'error');
+    return;
+  }
+  
+  const btn = document.getElementById('btnScanExternalBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Scanning...';
+  
+  try {
+    const response = await fetch('/api/scan-external', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({device_path: selectedDevicePath})
+    });
+    
+    const r = await response.json();
+    if (!response.ok) {
+      toast('Error: ' + (r.error || 'Scan failed'), 'error');
+    } else {
+      toast(`✓ ${r.scanned} scanned · ${r.added} with faces`, 'success');
+      await loadPeople();
+      await refreshStats();
+      document.getElementById('deviceModal').style.display = 'none';
+    }
+  } catch (e) {
+    toast('Scan failed: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '🔍 Scan Selected';
+  }
+};
+
+// ── Sort to External ───────────────────────────────────────────────────
+document.getElementById('btnSortExternalBtn').onclick = async () => {
+  if (!selectedDevicePath) {
+    toast('Select a device first', 'error');
+    return;
+  }
+  
+  if (!confirm(`Sort photos to ${selectedDevicePath}?`)) return;
+  
+  const btn = document.getElementById('btnSortExternalBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Sorting...';
+  
+  try {
+    const response = await fetch('/api/sort-to-external', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({output_dir: selectedDevicePath})
+    });
+    
+    const r = await response.json();
+    if (!response.ok) {
+      toast('Error: ' + (r.error || 'Sort failed'), 'error');
+    } else {
+      let msg = `✓ ${r.copied} photos sorted to ${selectedDevicePath}`;
+      if (r.error_count > 0) msg += ` (${r.error_count} errors)`;
+      toast(msg, 'success');
+      document.getElementById('deviceModal').style.display = 'none';
+    }
+  } catch (e) {
+    toast('Sort failed: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '💾 Sort to Device';
+  }
+};
+
+// ── Utilities ──────────────────────────────────────────────────────────
+function formatBytes(bytes) {
+  if (!bytes) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + sizes[i];
 }
 </script>
 </body>
